@@ -1,8 +1,12 @@
 import streamlit as st
+from openai import APIConnectionError, AuthenticationError, RateLimitError
 
 from rag_engine import (
     load_or_build_index,
-    answer_question
+    answer_question,
+    get_secret,
+    transcribe_audio,
+    synthesize_speech,
 )
 
 st.set_page_config(
@@ -13,11 +17,41 @@ st.set_page_config(
 )
 
 # -----------------------------
+# Optional PIN gate (set APP_PIN as a secret/env var to enable)
+# -----------------------------
+APP_PIN = get_secret("APP_PIN")
+
+if APP_PIN and not st.session_state.get("authenticated"):
+    st.title("🔒 Ask Your Microwave")
+    st.caption("Enter the family PIN to continue.")
+    pin_attempt = st.text_input("PIN", type="password", key="pin_attempt")
+    if st.button("Enter", use_container_width=True):
+        if pin_attempt == str(APP_PIN):
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Incorrect PIN, please try again.")
+    st.stop()
+
+# -----------------------------
 # Custom styling
 # -----------------------------
 st.markdown(
     """
     <style>
+    /* Larger base text throughout — easier reading for older eyes */
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li,
+    [data-testid="stChatMessageContent"] p,
+    [data-testid="stChatMessageContent"] li {
+        font-size: 1.15rem;
+        line-height: 1.65;
+    }
+
+    .stButton button {
+        font-size: 1.05rem;
+    }
+
     .main .block-container {
         max-width: 1050px;
         padding-top: 2rem;
@@ -35,12 +69,12 @@ st.markdown(
 
     .hero h1 {
         margin-bottom: 0.35rem;
-        font-size: 2.3rem;
+        font-size: 2.5rem;
     }
 
     .hero p {
         margin-bottom: 0.4rem;
-        font-size: 1.05rem;
+        font-size: 1.2rem;
     }
 
     .hero h1,
@@ -156,6 +190,26 @@ with st.sidebar:
     if st.button("🔄 Start a New Conversation", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
+
+    st.divider()
+
+    st.toggle("🔊 Read answers aloud", value=True, key="read_aloud")
+
+    st.divider()
+
+    with st.expander("📱 Add this to your phone's home screen"):
+        st.markdown(
+            """
+            **iPhone (Safari):** tap the Share icon, then
+            "Add to Home Screen".
+
+            **Android (Chrome):** tap the ⋮ menu, then
+            "Add to Home screen".
+
+            Then you can open it like any other app — no need to
+            remember the web address.
+            """
+        )
 
     st.divider()
 
@@ -280,12 +334,35 @@ if "followup_question" in st.session_state and st.session_state.messages:
         del st.session_state.followup_question
         st.rerun()
 
+_last_assistant_msg = next(
+    (m for m in reversed(st.session_state.messages)
+     if m["role"] == "assistant" and m.get("question")),
+    None,
+)
+if _last_assistant_msg:
+    if st.button("📖 Explain that in more detail", use_container_width=True):
+        st.session_state.pending_detail_question = _last_assistant_msg["question"]
+        st.rerun()
+
 # -----------------------------
 # Display conversation history
 # -----------------------------
-for message in st.session_state.messages:
+for _i, message in enumerate(st.session_state.messages):
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
+        if message.get("sources"):
+            with st.expander("📄 Show manual excerpts used"):
+                for src in message["sources"]:
+                    st.markdown(f"**{src['doc']}, page {src['page']}**")
+                    st.caption(src["text"])
+        if message.get("audio"):
+            is_latest = _i == len(st.session_state.messages) - 1
+            autoplay = is_latest and st.session_state.get("autoplay_last_audio", False)
+            st.audio(message["audio"], format="audio/mp3", autoplay=autoplay)
+
+# Audio should only autoplay once, right after it's generated — not on every
+# later rerun (e.g. clicking an unrelated button would otherwise replay it).
+st.session_state.autoplay_last_audio = False
 
 def get_fun_followup(answer_text):
     """Return a light follow-up suggestion based on the assistant's answer."""
@@ -304,16 +381,58 @@ def get_fun_followup(answer_text):
 # Handle example question selection
 # -----------------------------
 pending_question = st.session_state.pop("pending_question", None)
+pending_detail_question = st.session_state.pop("pending_detail_question", None)
+
+# -----------------------------
+# Voice input
+# -----------------------------
+if "audio_key_counter" not in st.session_state:
+    st.session_state.audio_key_counter = 0
+
+st.markdown('<div class="section-label">🎤 Or ask by voice</div>', unsafe_allow_html=True)
+audio_value = st.audio_input(
+    "Record your question",
+    label_visibility="collapsed",
+    key=f"audio_input_{st.session_state.audio_key_counter}",
+)
+
+if audio_value is not None:
+    with st.spinner("🎤 Transcribing..."):
+        try:
+            transcribed = transcribe_audio(audio_value)
+        except Exception:
+            transcribed = None
+
+    st.session_state.audio_key_counter += 1  # clear the recorder after one attempt
+
+    if transcribed and transcribed.strip():
+        st.session_state.pending_question = transcribed.strip()
+        st.rerun()
+    else:
+        st.error("Sorry, I couldn't understand that recording. Please try again or type your question.")
 
 # -----------------------------
 # Chat input
 # -----------------------------
-prompt = st.chat_input(
+typed_prompt = st.chat_input(
     "Ask anything about your LG microwave..."
 )
 
-if pending_question:
+detail_level = "normal"
+query_for_engine = None
+
+if pending_detail_question:
+    prompt = "🔍 Please explain that in more detail."
+    detail_level = "detailed"
+    query_for_engine = pending_detail_question
+elif pending_question:
     prompt = pending_question
+    query_for_engine = pending_question
+elif typed_prompt:
+    prompt = typed_prompt
+    query_for_engine = typed_prompt
+else:
+    prompt = None
 
 # -----------------------------
 # Process question
@@ -329,16 +448,65 @@ if prompt:
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    sources = []
+    succeeded = False
+    audio_bytes = None
+
     with st.chat_message("assistant"):
         with st.spinner("🔎 Searching the manuals..."):
             try:
-                answer = answer_question(
-                    query=prompt,
+                result = answer_question(
+                    query=query_for_engine,
                     chunks=chunks,
                     faiss_index=faiss_index,
                     bm25_index=bm25_index,
+                    detail_level=detail_level,
                 )
+                answer = result["answer"]
+                sources = result["sources"]
+                succeeded = True
                 st.markdown(answer)
+
+                if sources:
+                    with st.expander("📄 Show manual excerpts used"):
+                        for src in sources:
+                            st.markdown(f"**{src['doc']}, page {src['page']}**")
+                            st.caption(src["text"])
+
+                # Generated here (not played here) so it's only synthesized once;
+                # it's rendered with autoplay after the rerun below, since a widget
+                # created in this transient render would be torn down before the
+                # audio could actually finish (or even start) playing.
+                if st.session_state.get("read_aloud", True):
+                    try:
+                        audio_bytes = synthesize_speech(answer)
+                    except Exception:
+                        audio_bytes = None
+
+            except AuthenticationError:
+                answer = (
+                    "I'm having trouble reaching the AI service — there seems to be a "
+                    "problem with the app's API key. Noel needs to check the app settings."
+                )
+                st.error(answer)
+            except RateLimitError as e:
+                if "insufficient_quota" in str(e).lower():
+                    answer = (
+                        "The assistant has run out of its OpenAI credits for now. "
+                        "Noel needs to add more credit before it can answer again."
+                    )
+                else:
+                    answer = (
+                        "The assistant is getting too many requests right now. "
+                        "Please wait a minute and try again."
+                    )
+                st.error(answer)
+            except APIConnectionError:
+                answer = (
+                    "I couldn't connect to the AI service — this is usually a temporary "
+                    "network hiccup. Please try again in a moment."
+                )
+                st.error(answer)
             except Exception as e:
                 answer = (
                     "I'm sorry, I ran into a problem while searching the microwave manuals. "
@@ -350,11 +518,17 @@ if prompt:
     st.session_state.messages.append(
         {
             "role": "assistant",
-            "content": answer
+            "content": answer,
+            "question": query_for_engine,
+            "sources": sources,
+            "audio": audio_bytes,
         }
     )
 
-    st.session_state.followup_question = get_fun_followup(answer)
+    st.session_state.autoplay_last_audio = audio_bytes is not None
+
+    if succeeded:
+        st.session_state.followup_question = get_fun_followup(answer)
     st.rerun()
 
 # -----------------------------

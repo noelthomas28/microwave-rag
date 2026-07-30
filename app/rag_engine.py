@@ -70,17 +70,18 @@ CHUNKS_FILE = DATA_DIR / "chunks.pkl"
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
-def _get_openai_api_key():
+def get_secret(name):
     """Prefer Streamlit Cloud's secrets store; fall back to the .env-loaded
-    environment variable for local development."""
+    environment variable for local development. Used for OPENAI_API_KEY and
+    APP_PIN."""
     try:
         import streamlit as st
-        return st.secrets["OPENAI_API_KEY"]
+        return st.secrets[name]
     except Exception:
-        return os.getenv("OPENAI_API_KEY")
+        return os.getenv(name)
 
 
-client = OpenAI(api_key=_get_openai_api_key())
+client = OpenAI(api_key=get_secret("OPENAI_API_KEY"))
 
 # ============================================================
 # READ PDF FILES (per-page, with metadata)
@@ -277,8 +278,9 @@ def _format_context(retrieved):
     return "\n\n---\n\n".join(blocks)
 
 
-def answer_question(query, chunks, faiss_index, bm25_index):
-    retrieved = retrieve_chunks(query, chunks, faiss_index, bm25_index)
+def answer_question(query, chunks, faiss_index, bm25_index, detail_level="normal"):
+    retrieval_k = RETRIEVAL_K + 4 if detail_level == "detailed" else RETRIEVAL_K
+    retrieved = retrieve_chunks(query, chunks, faiss_index, bm25_index, k=retrieval_k)
 
     # Always pull a small reference block naming the appliance's actual modes/
     # accessories, deduplicated against the main retrieval. This is what lets
@@ -323,6 +325,21 @@ The question's subject appears to be covered somewhere in the manual context bel
 Answer normally, following the synthesis guidance above.
 """
 
+    if detail_level == "detailed":
+        thoroughness_guidance = (
+            "The reader explicitly asked for MORE DETAIL than a normal answer. Give a "
+            "thorough, in-depth answer: include every relevant step, setting, tip, and "
+            "safety note found in the manual context below, even ones that seem minor. "
+            "Do not summarize or shorten. Use bullet points or numbered steps to keep it "
+            "organized and easy to follow despite the extra length."
+        )
+    else:
+        thoroughness_guidance = (
+            "Be thorough and complete rather than brief — don't sacrifice helpful detail "
+            "for the sake of brevity. Use bullet points or numbered steps to keep longer "
+            "answers organized and easy to follow."
+        )
+
     prompt = f"""
 You are an expert LG appliance assistant.
 
@@ -351,7 +368,9 @@ with its own short step list, so the reader can pick one.
 
 {feature_guidance}
 
-Be concise but complete. Mention any safety warnings. Cite the source document and page
+{thoroughness_guidance}
+
+Mention any safety warnings. Cite the source document and page
 number for each key fact, using the [Source: ..., Page ...] labels provided in the context.
 
 MANUAL CONTEXT:
@@ -372,7 +391,31 @@ QUESTION:
         messages=[{"role": "user", "content": prompt}],
     )
 
-    return response.choices[0].message.content
+    return {
+        "answer": response.choices[0].message.content,
+        "sources": retrieved,
+    }
+
+# ============================================================
+# VOICE I/O (speech-to-text and text-to-speech)
+# ============================================================
+
+TRANSCRIPTION_MODEL = "whisper-1"
+TTS_MODEL = "tts-1"
+TTS_VOICE = "alloy"
+
+
+def transcribe_audio(audio_file):
+    """Transcribes a recorded question. `audio_file` is any file-like object
+    the OpenAI SDK accepts (e.g. what st.audio_input returns)."""
+    response = client.audio.transcriptions.create(model=TRANSCRIPTION_MODEL, file=audio_file)
+    return response.text
+
+
+def synthesize_speech(text):
+    """Returns MP3 bytes of `text` read aloud, for read-along answers."""
+    response = client.audio.speech.create(model=TTS_MODEL, voice=TTS_VOICE, input=text)
+    return response.content
 
 # ============================================================
 # INDEX BUILD / LOAD
@@ -439,7 +482,7 @@ def main():
             print("\nGoodbye!")
             break
 
-        answer = answer_question(
+        result = answer_question(
             query=query,
             chunks=chunks,
             faiss_index=faiss_index,
@@ -449,7 +492,7 @@ def main():
         print("\n========================")
         print("ANSWER")
         print("========================\n")
-        print(answer)
+        print(result["answer"])
         print()  # blank line before the next prompt, for readability
 
 

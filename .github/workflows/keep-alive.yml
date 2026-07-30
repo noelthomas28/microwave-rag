@@ -1,0 +1,16 @@
+name: Keep Streamlit app awake
+
+on:
+  schedule:
+    - cron: "0 13 */3 * *"  # every 3 days at 13:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the app
+        run: |
+          curl -sS -L --max-time 30 \
+            "https://microwave-rag-ktrvn5z2352uuksvb6basj.streamlit.app" \
+            -o /dev/null -w "HTTP status: %{http_code}\n"
