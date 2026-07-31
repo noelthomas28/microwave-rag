@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from openai import APIConnectionError, AuthenticationError, RateLimitError
 
 from rag_engine import (
@@ -555,3 +556,28 @@ st.markdown(
     '</div>',
     unsafe_allow_html=True,
 )
+
+# -----------------------------
+# Open on the welcome section, not the chat input
+# -----------------------------
+# Streamlit auto-scrolls chat apps to the bottom (to reveal chat_input) on every
+# load. That's right once a conversation exists, but on a brand-new session it
+# hides the whole welcome/hero section behind the fold. Only override it when
+# there's no conversation yet, so it doesn't fight the normal "jump to the
+# newest answer" behavior once the user is actually chatting.
+if not st.session_state.messages:
+    components.html(
+        """
+        <script>
+        function scrollTop() {
+            const doc = window.parent.document;
+            const main = doc.querySelector('section.stMain');
+            if (main) { main.scrollTop = 0; }
+            doc.documentElement.scrollTop = 0;
+            doc.body.scrollTop = 0;
+        }
+        [50, 300, 800, 1500, 3000].forEach(t => setTimeout(scrollTop, t));
+        </script>
+        """,
+        height=0,
+    )
