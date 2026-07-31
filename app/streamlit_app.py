@@ -1,3 +1,5 @@
+import random
+
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import APIConnectionError, AuthenticationError, RateLimitError
@@ -12,7 +14,7 @@ from rag_engine import (
 
 st.set_page_config(
     page_title="Ask Your Microwave",
-    page_icon="🤖",
+    page_icon="🍽️",
     layout="centered",
     initial_sidebar_state="expanded",
 )
@@ -37,143 +39,188 @@ if APP_PIN and not st.session_state.get("authenticated"):
 # -----------------------------
 # Custom styling
 # -----------------------------
+# Streamlit's frontend doesn't expose the active theme via a CSS attribute we
+# can select on (there is no [data-theme] anywhere in its DOM), so a fixed
+# palette written with only light-mode colors would go unreadable in dark
+# mode. st.context.theme.type reports the browser's actual active theme
+# server-side, so we pick the right palette in Python instead and the CSS
+# just uses it directly — no dead selectors, and it updates live if the user
+# flips the theme in Streamlit's settings menu.
+_theme_type = getattr(st.context.theme, "type", None) or "light"
+_is_dark = _theme_type == "dark"
+
+_hero_bg = (
+    "linear-gradient(135deg, #9a3412 0%, #7c2d12 100%)"
+    if _is_dark
+    else "linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)"
+)
+_hero_border = "#c2410c" if _is_dark else "#fed7aa"
+_hero_text = "#fff7ed" if _is_dark else "#1f2937"
+
+_pill_bg = "rgba(255, 255, 255, 0.14)" if _is_dark else "rgba(255, 255, 255, 0.78)"
+_pill_border = "rgba(255, 247, 237, 0.45)" if _is_dark else "#fdba74"
+_pill_text = "#fff7ed" if _is_dark else "#1f2937"
+
+_tip_bg = "#141821" if _is_dark else "#ffffff"
+_tip_border = "#4b5563" if _is_dark else "#d1d5db"
+_tip_text = "#f8fafc" if _is_dark else "#1f2937"
+_tip_accent = "#fb923c" if _is_dark else "#f97316"
+
+_status_bg = "#052e16" if _is_dark else "#f0fdf4"
+_status_border = "#166534" if _is_dark else "#bbf7d0"
+_status_text = "#bbf7d0" if _is_dark else "#14532d"
+
+_credit_text = "#9ca3af" if _is_dark else "#6b7280"
+_credit_border = "#374151" if _is_dark else "#e5e7eb"
+
+_card_shadow = "0 6px 18px rgba(0, 0, 0, 0.35)" if _is_dark else "0 6px 16px rgba(31, 41, 55, 0.08)"
+_hero_title_gradient = (
+    "linear-gradient(135deg, #fed7aa 0%, #fff7ed 100%)"
+    if _is_dark
+    else "linear-gradient(135deg, #c2410c 0%, #9a3412 100%)"
+)
+
 st.markdown(
-    """
+    f"""
     <style>
     /* Larger base text throughout — easier reading for older eyes */
     [data-testid="stMarkdownContainer"] p,
     [data-testid="stMarkdownContainer"] li,
     [data-testid="stChatMessageContent"] p,
-    [data-testid="stChatMessageContent"] li {
+    [data-testid="stChatMessageContent"] li {{
         font-size: 1.15rem;
         line-height: 1.65;
-    }
+    }}
 
-    .stButton button {
+    .stButton button {{
         font-size: 1.05rem;
-    }
+    }}
 
-    .main .block-container {
+    .main .block-container {{
         max-width: 1050px;
         padding-top: 2rem;
         padding-bottom: 3rem;
-    }
+    }}
 
-    .hero {
+    @keyframes fadeSlideIn {{
+        from {{ opacity: 0; transform: translateY(10px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
+    }}
+
+    @keyframes heroFadeSlideIn {{
+        from {{ opacity: 0; transform: translateY(24px) scale(0.98); }}
+        to {{ opacity: 1; transform: translateY(0) scale(1); }}
+    }}
+
+    .hero {{
         padding: 1.8rem 2rem;
         border-radius: 20px;
-        background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
-        border: 1px solid #fed7aa;
+        background: {_hero_bg};
+        border: 1px solid {_hero_border};
         margin-bottom: 1.5rem;
-        color: #1f2937;
-    }
+        color: {_hero_text};
+        box-shadow: {_card_shadow};
+        animation: heroFadeSlideIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }}
 
-    .hero h1 {
+    .hero h1 {{
         margin-bottom: 0.35rem;
         font-size: 2.5rem;
-    }
+        background: {_hero_title_gradient};
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }}
 
-    .hero p {
+    .hero p {{
         margin-bottom: 0.4rem;
         font-size: 1.2rem;
-    }
+    }}
 
-    .hero h1,
-    .hero p {
-        color: #1f2937 !important;
-    }
+    .hero p {{
+        color: {_hero_text} !important;
+    }}
 
-    .feature-row {
+    .feature-row {{
         display: flex;
         flex-wrap: nowrap;
         gap: 0.5rem;
         margin-top: 1rem;
         overflow-x: auto;
         padding-bottom: 0.15rem;
-    }
+    }}
 
-    .feature-pill {
+    .feature-pill {{
         padding: 0.35rem 0.75rem;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.78);
-        border: 1px solid #fdba74;
-        color: #1f2937;
+        background: {_pill_bg};
+        border: 1px solid {_pill_border};
+        color: {_pill_text};
         font-size: 0.9rem;
         white-space: nowrap;
-    }
+    }}
 
-    .section-label {
+    .section-label {{
         font-size: 1.05rem;
         font-weight: 600;
         margin-top: 1rem;
         margin-bottom: 0.5rem;
-    }
+    }}
 
-    div[data-testid="stChatMessage"] {
+    div[data-testid="stChatMessage"] {{
         border-radius: 16px;
         padding: 0.25rem 0.5rem;
-    }
+        animation: fadeSlideIn 0.35s ease-out;
+    }}
 
-    div[data-testid="stChatInput"] {
+    div[data-testid="stChatInput"] {{
         padding-bottom: 1rem;
-    }
+    }}
 
-    .creator-credit {
+    .creator-credit {{
         text-align: center;
-        color: #6b7280;
+        color: {_credit_text};
         font-size: 0.82rem;
         margin-top: 2rem;
         padding-top: 1rem;
-        border-top: 1px solid #e5e7eb;
-    }
+        border-top: 1px solid {_credit_border};
+    }}
 
-    .tip-card {
+    .tip-card {{
         padding: 0.9rem 1rem;
         border-radius: 10px;
-        background: #ffffff;
-        border: 1px solid #d1d5db;
-        color: #1f2937;
+        background: {_tip_bg};
+        border: 1px solid {_tip_border};
+        color: {_tip_text};
         margin-top: 0.75rem;
-    }
+        box-shadow: {_card_shadow};
+    }}
 
-    .tip-card em {
-        color: #1f2937;
-    }
+    .tip-card em {{
+        color: {_tip_text};
+    }}
 
-    [data-theme="dark"] .hero {
-        background: linear-gradient(135deg, #9a3412 0%, #7c2d12 100%);
-        border-color: #c2410c;
-        color: #fff7ed;
-    }
+    .daily-tip {{
+        padding: 0.85rem 1rem;
+        border-radius: 10px;
+        background: {_tip_bg};
+        border: 1px solid {_tip_border};
+        border-left: 4px solid {_tip_accent};
+        color: {_tip_text};
+        box-shadow: {_card_shadow};
+        font-size: 0.92rem;
+        line-height: 1.55;
+    }}
 
-    [data-theme="dark"] .hero h1,
-    [data-theme="dark"] .hero p {
-        color: #fff7ed !important;
-    }
-
-    [data-theme="dark"] .feature-pill {
-        background: rgba(255, 255, 255, 0.14);
-        border-color: rgba(255, 247, 237, 0.45);
-        color: #fff7ed;
-    }
-
-    [data-theme="dark"] .tip-card {
-        background: #141821;
-        border-color: #4b5563;
-        color: #f8fafc;
-    }
-
-    [data-theme="dark"] .tip-card em {
-        color: #f8fafc;
-    }
-
-    .status-card {
+    .status-card {{
         padding: 0.65rem 0.8rem;
         border-radius: 12px;
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
+        background: {_status_bg};
+        border: 1px solid {_status_border};
+        color: {_status_text};
         font-size: 0.9rem;
-    }
+        box-shadow: {_card_shadow};
+    }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -182,9 +229,27 @@ st.markdown(
 # -----------------------------
 # Sidebar
 # -----------------------------
+DAILY_TIPS = [
+    "You can ask me to explain any setting step-by-step.",
+    "You can record your question instead of typing it — just tap the microphone below.",
+    "Tap \"Explain that in more detail\" under an answer for a deeper explanation.",
+    "Add this app to your phone's home screen for one-tap access, no need to remember the web address.",
+    "I can read my answers aloud — toggle it below if you'd rather just listen.",
+]
+# A fresh tip is picked every time the script reruns (e.g. asking a question,
+# clicking any button) rather than on a JS timer — this avoids needing a
+# fixed-height iframe (which was clipping longer tips) and still feels like
+# it "rotates" since this app reruns on almost every user interaction.
+_daily_tip = random.choice(DAILY_TIPS)
+
 with st.sidebar:
     st.header("🤖 Microwave Assistant")
     st.caption("Your friendly guide to getting the most out of your LG microwave.")
+
+    st.markdown(
+        f'<div class="daily-tip">💡 <strong>Did you know?</strong> {_daily_tip}</div>',
+        unsafe_allow_html=True,
+    )
 
     st.divider()
 
@@ -247,7 +312,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.divider()
-    st.caption("Built with ❤️ by Noel Thomas  \n(with help from ChatGPT and Claude 😅)")
+    st.caption("Built with ❤️ by Noel Thomas  \n(with help from Claude Code 😅)")
 
 # -----------------------------
 # Load RAG system
@@ -326,7 +391,29 @@ if not st.session_state.messages:
     )
 
 # -----------------------------
-# Follow-up suggestion
+# Display conversation history
+# -----------------------------
+CHAT_AVATARS = {"assistant": "🍽️"}
+
+for _i, message in enumerate(st.session_state.messages):
+    with st.chat_message(message["role"], avatar=CHAT_AVATARS.get(message["role"])):
+        st.markdown(message["content"])
+        if message.get("sources"):
+            with st.expander("📄 Show manual excerpts used"):
+                for src in message["sources"]:
+                    st.markdown(f"**{src['doc']}, page {src['page']}**")
+                    st.caption(src["text"])
+        if message.get("audio"):
+            is_latest = _i == len(st.session_state.messages) - 1
+            autoplay = is_latest and st.session_state.get("autoplay_last_audio", False)
+            st.audio(message["audio"], format="audio/mp3", autoplay=autoplay)
+
+# Audio should only autoplay once, right after it's generated — not on every
+# later rerun (e.g. clicking an unrelated button would otherwise replay it).
+st.session_state.autoplay_last_audio = False
+
+# -----------------------------
+# Follow-up suggestion — shown after the latest answer, not above it
 # -----------------------------
 if "followup_question" in st.session_state and st.session_state.messages:
     followup = st.session_state.followup_question
@@ -344,26 +431,6 @@ if _last_assistant_msg:
     if st.button("📖 Explain that in more detail", use_container_width=True):
         st.session_state.pending_detail_question = _last_assistant_msg["question"]
         st.rerun()
-
-# -----------------------------
-# Display conversation history
-# -----------------------------
-for _i, message in enumerate(st.session_state.messages):
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-        if message.get("sources"):
-            with st.expander("📄 Show manual excerpts used"):
-                for src in message["sources"]:
-                    st.markdown(f"**{src['doc']}, page {src['page']}**")
-                    st.caption(src["text"])
-        if message.get("audio"):
-            is_latest = _i == len(st.session_state.messages) - 1
-            autoplay = is_latest and st.session_state.get("autoplay_last_audio", False)
-            st.audio(message["audio"], format="audio/mp3", autoplay=autoplay)
-
-# Audio should only autoplay once, right after it's generated — not on every
-# later rerun (e.g. clicking an unrelated button would otherwise replay it).
-st.session_state.autoplay_last_audio = False
 
 def get_fun_followup(answer_text):
     """Return a light follow-up suggestion based on the assistant's answer."""
@@ -453,7 +520,7 @@ if prompt:
     succeeded = False
     audio_bytes = None
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar=CHAT_AVATARS.get("assistant")):
         with st.spinner("🔎 Searching the manuals..."):
             try:
                 result = answer_question(
@@ -527,9 +594,13 @@ if prompt:
     )
 
     st.session_state.autoplay_last_audio = audio_bytes is not None
+    st.session_state.scroll_to_answer = True
 
     if succeeded:
         st.session_state.followup_question = get_fun_followup(answer)
+        if not st.session_state.get("celebrated_first_answer"):
+            st.session_state.celebrated_first_answer = True
+            st.balloons()
     st.rerun()
 
 # -----------------------------
@@ -552,19 +623,21 @@ st.markdown(
     '<div class="creator-credit">'
     '🤖 <strong>Ask Your Microwave</strong> · Powered by your LG microwave manuals<br>'
     'Created by Noel Thomas ✌🏽<br>'
-    '<span>Co-created by ChatGPT 🧠 and Claude 🦾</span>'
+    '<span>Co-created by Claude Code 🦾</span>'
     '</div>',
     unsafe_allow_html=True,
 )
 
 # -----------------------------
-# Open on the welcome section, not the chat input
+# Scroll management
 # -----------------------------
-# Streamlit auto-scrolls chat apps to the bottom (to reveal chat_input) on every
-# load. That's right once a conversation exists, but on a brand-new session it
-# hides the whole welcome/hero section behind the fold. Only override it when
-# there's no conversation yet, so it doesn't fight the normal "jump to the
-# newest answer" behavior once the user is actually chatting.
+# Streamlit's built-in auto-scroll-to-bottom (tied to st.chat_input) only
+# fires when the user submits through that widget directly — not when a
+# question comes from a button (example question, cooking-mode search,
+# follow-up, voice input). So on a brand-new session we force scroll-to-top
+# (to reveal the hero/welcome section), and right after any question is
+# answered we force scroll-to-bottom (to reveal the new answer), regardless
+# of which input method triggered it.
 if not st.session_state.messages:
     components.html(
         """
@@ -577,6 +650,45 @@ if not st.session_state.messages:
             doc.body.scrollTop = 0;
         }
         [50, 300, 800, 1500, 3000].forEach(t => setTimeout(scrollTop, t));
+        </script>
+        """,
+        height=0,
+    )
+elif st.session_state.pop("scroll_to_answer", False):
+    # Scroll so the question just asked sits at the top of the view, with the
+    # answer visible right below it — not scrolled all the way to the bottom,
+    # which would hide the start of a long answer above the fold. Streamlit's
+    # own built-in scroll-to-bottom (tied to chat_input) wins any one-shot or
+    # observer-based race — it seems to re-assert itself at least once after
+    # the script finishes, on a schedule we can't hook into. So we keep
+    # re-applying our position on a tight interval for several seconds —
+    # whenever Streamlit's own scroll fires, our next tick (within 200ms)
+    # corrects it back. But that must stop the instant the user actually
+    # tries to scroll themselves (wheel/touch/keyboard), or it fights them —
+    # only our own programmatic scrollIntoView calls should be ignored.
+    components.html(
+        """
+        <script>
+        function scrollToQuestion() {
+            const doc = window.parent.document;
+            const messages = doc.querySelectorAll('[data-testid="stChatMessage"]');
+            if (messages.length === 0) return;
+            const idx = messages.length >= 2 ? messages.length - 2 : 0;
+            messages[idx].scrollIntoView({ block: "start", behavior: "auto" });
+        }
+        const mainDoc = window.parent.document;
+        const target = mainDoc.querySelector('section.stMain') || mainDoc.body;
+        let cancelled = false;
+        function cancel() { cancelled = true; }
+        target.addEventListener('wheel', cancel, { once: true, passive: true });
+        target.addEventListener('touchmove', cancel, { once: true, passive: true });
+        target.addEventListener('keydown', cancel, { once: true });
+        scrollToQuestion();
+        const intervalId = setInterval(() => {
+            if (cancelled) { clearInterval(intervalId); return; }
+            scrollToQuestion();
+        }, 200);
+        setTimeout(() => { cancelled = true; clearInterval(intervalId); }, 45000);
         </script>
         """,
         height=0,
