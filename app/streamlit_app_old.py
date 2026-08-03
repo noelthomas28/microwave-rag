@@ -11,7 +11,6 @@ from rag_engine import (
     transcribe_audio,
     synthesize_speech,
 )
-from theme import inject_theme
 
 st.set_page_config(
     page_title="Ask Your Microwave",
@@ -38,15 +37,194 @@ if APP_PIN and not st.session_state.get("authenticated"):
     st.stop()
 
 # -----------------------------
-# Theme
+# Custom styling
 # -----------------------------
 # Streamlit's frontend doesn't expose the active theme via a CSS attribute we
-# can select on, so st.context.theme.type (resolved server-side) picks the
-# right token set in Python; native widget styling comes from
-# .streamlit/config.toml, everything else from theme.inject_theme().
+# can select on (there is no [data-theme] anywhere in its DOM), so a fixed
+# palette written with only light-mode colors would go unreadable in dark
+# mode. st.context.theme.type reports the browser's actual active theme
+# server-side, so we pick the right palette in Python instead and the CSS
+# just uses it directly — no dead selectors, and it updates live if the user
+# flips the theme in Streamlit's settings menu.
 _theme_type = getattr(st.context.theme, "type", None) or "light"
 _is_dark = _theme_type == "dark"
-inject_theme(_is_dark)
+
+_hero_bg = (
+    "linear-gradient(135deg, #9a3412 0%, #7c2d12 100%)"
+    if _is_dark
+    else "linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)"
+)
+_hero_border = "#c2410c" if _is_dark else "#fed7aa"
+_hero_text = "#fff7ed" if _is_dark else "#1f2937"
+
+_pill_bg = "rgba(255, 255, 255, 0.14)" if _is_dark else "rgba(255, 255, 255, 0.78)"
+_pill_border = "rgba(255, 247, 237, 0.45)" if _is_dark else "#fdba74"
+_pill_text = "#fff7ed" if _is_dark else "#1f2937"
+
+_tip_bg = "#141821" if _is_dark else "#ffffff"
+_tip_border = "#4b5563" if _is_dark else "#d1d5db"
+_tip_text = "#f8fafc" if _is_dark else "#1f2937"
+_tip_accent = "#fb923c" if _is_dark else "#f97316"
+
+_status_bg = "#052e16" if _is_dark else "#f0fdf4"
+_status_border = "#166534" if _is_dark else "#bbf7d0"
+_status_text = "#bbf7d0" if _is_dark else "#14532d"
+
+_credit_text = "#9ca3af" if _is_dark else "#6b7280"
+_credit_border = "#374151" if _is_dark else "#e5e7eb"
+
+_card_shadow = "0 6px 18px rgba(0, 0, 0, 0.35)" if _is_dark else "0 6px 16px rgba(31, 41, 55, 0.08)"
+_hero_title_gradient = (
+    "linear-gradient(135deg, #fed7aa 0%, #fff7ed 100%)"
+    if _is_dark
+    else "linear-gradient(135deg, #c2410c 0%, #9a3412 100%)"
+)
+
+st.markdown(
+    f"""
+    <style>
+    /* Larger base text throughout — easier reading for older eyes */
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li,
+    [data-testid="stChatMessageContent"] p,
+    [data-testid="stChatMessageContent"] li {{
+        font-size: 1.15rem;
+        line-height: 1.65;
+    }}
+
+    .stButton button {{
+        font-size: 1.05rem;
+    }}
+
+    .main .block-container {{
+        max-width: 1050px;
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+    }}
+
+    @keyframes fadeSlideIn {{
+        from {{ opacity: 0; transform: translateY(10px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
+    }}
+
+    @keyframes heroFadeSlideIn {{
+        from {{ opacity: 0; transform: translateY(24px) scale(0.98); }}
+        to {{ opacity: 1; transform: translateY(0) scale(1); }}
+    }}
+
+    .hero {{
+        padding: 1.8rem 2rem;
+        border-radius: 20px;
+        background: {_hero_bg};
+        border: 1px solid {_hero_border};
+        margin-bottom: 1.5rem;
+        color: {_hero_text};
+        box-shadow: {_card_shadow};
+        animation: heroFadeSlideIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }}
+
+    .hero h1 {{
+        margin-bottom: 0.35rem;
+        font-size: 2.5rem;
+        background: {_hero_title_gradient};
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }}
+
+    .hero p {{
+        margin-bottom: 0.4rem;
+        font-size: 1.2rem;
+    }}
+
+    .hero p {{
+        color: {_hero_text} !important;
+    }}
+
+    .feature-row {{
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        overflow-x: auto;
+        padding-bottom: 0.15rem;
+    }}
+
+    .feature-pill {{
+        padding: 0.35rem 0.75rem;
+        border-radius: 999px;
+        background: {_pill_bg};
+        border: 1px solid {_pill_border};
+        color: {_pill_text};
+        font-size: 0.9rem;
+        white-space: nowrap;
+    }}
+
+    .section-label {{
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+    }}
+
+    div[data-testid="stChatMessage"] {{
+        border-radius: 16px;
+        padding: 0.25rem 0.5rem;
+        animation: fadeSlideIn 0.35s ease-out;
+    }}
+
+    div[data-testid="stChatInput"] {{
+        padding-bottom: 1rem;
+    }}
+
+    .creator-credit {{
+        text-align: center;
+        color: {_credit_text};
+        font-size: 0.82rem;
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid {_credit_border};
+    }}
+
+    .tip-card {{
+        padding: 0.9rem 1rem;
+        border-radius: 10px;
+        background: {_tip_bg};
+        border: 1px solid {_tip_border};
+        color: {_tip_text};
+        margin-top: 0.75rem;
+        box-shadow: {_card_shadow};
+    }}
+
+    .tip-card em {{
+        color: {_tip_text};
+    }}
+
+    .daily-tip {{
+        padding: 0.85rem 1rem;
+        border-radius: 10px;
+        background: {_tip_bg};
+        border: 1px solid {_tip_border};
+        border-left: 4px solid {_tip_accent};
+        color: {_tip_text};
+        box-shadow: {_card_shadow};
+        font-size: 0.92rem;
+        line-height: 1.55;
+    }}
+
+    .status-card {{
+        padding: 0.65rem 0.8rem;
+        border-radius: 12px;
+        background: {_status_bg};
+        border: 1px solid {_status_border};
+        color: {_status_text};
+        font-size: 0.9rem;
+        box-shadow: {_card_shadow};
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # -----------------------------
 # Sidebar
@@ -73,11 +251,17 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    if st.button("🔄 Start a New Conversation", use_container_width=True, type="primary"):
+    st.divider()
+
+    if st.button("🔄 Start a New Conversation", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
 
+    st.divider()
+
     st.toggle("🔊 Read answers aloud", value=True, key="read_aloud")
+
+    st.divider()
 
     with st.expander("📱 Add this to your phone's home screen"):
         st.markdown(
@@ -107,8 +291,10 @@ with st.sidebar:
         """
     )
 
+    st.divider()
     st.caption("Answers are based on the LG microwave manuals provided to this assistant.")
 
+    st.divider()
     st.subheader("✨ Little extras")
     st.markdown(
         """
@@ -125,7 +311,6 @@ with st.sidebar:
         'My answers come from your microwave manuals.</div>',
         unsafe_allow_html=True,
     )
-
     st.divider()
     st.caption("Built with ❤️ by Noel Thomas  \n(with help from Claude Code 😅)")
 
@@ -151,8 +336,8 @@ st.markdown(
     """
     <div class="hero">
         <h1>🤖 Ask Your Microwave</h1>
-        <p class="hero-subtitle"><strong>Your friendly guide to your LG microwave.</strong></p>
-        <p class="hero-subtitle">Ask questions in plain English about cooking functions, settings, accessories, cleaning, and safety.</p>
+        <p><strong>Your friendly guide to your LG microwave.</strong></p>
+        <p>Ask questions in plain English about cooking functions, settings, accessories, cleaning, and safety.</p>
         <div class="feature-row">
             <span class="feature-pill">🔥 Smoking</span><span class="feature-pill">🍗 Rotisserie</span><span class="feature-pill">🍕 Cooking</span><span class="feature-pill">🍞 Baking</span><span class="feature-pill">🧼 Cleaning & Safety</span>
         </div>
@@ -168,7 +353,7 @@ if not st.session_state.messages:
 
     example_questions = [
         "👨‍🍳 What are you cooking?",
-        "🍞 How can I bake a cake?",
+        "🍞 How can I bake a cake in this microwave?",
         "🔥 How do I use the smoking function?",
         "🥘 How do I cook paneer?",
         "🍗 How do I use the rotisserie?",
@@ -179,30 +364,25 @@ if not st.session_state.messages:
     st.markdown('<div class="section-label">👨‍🍳 Cooking Mode</div>', unsafe_allow_html=True)
     st.caption("Tell me what you're cooking, and I'll help you find a suitable method from the manual.")
 
-    with st.container(key="cooking_mode_card", border=False):
-        cooking_food = st.text_input(
-            "What are you cooking?",
-            placeholder="e.g., chicken breast, paneer, frozen pizza...",
-            key="cooking_food_input",
-        )
+    cooking_food = st.text_input(
+        "What are you cooking?",
+        placeholder="e.g., chicken breast, paneer, frozen pizza...",
+        key="cooking_food",
+    )
 
-        if st.button("🍳 Find a Cooking Method", use_container_width=True, key="cooking_find_btn", type="primary"):
-            if cooking_food.strip():
-                st.session_state.pending_question = (
-                    f"I am cooking {cooking_food.strip()}. What cooking method from the microwave manual would you recommend, and how should I use it?"
-                )
-                st.rerun()
+    if st.button("🍳 Find a Cooking Method", use_container_width=True):
+        if cooking_food.strip():
+            st.session_state.pending_question = (
+                f"I am cooking {cooking_food.strip()}. What cooking method from the microwave manual would you recommend, and how should I use it?"
+            )
+            st.rerun()
 
     st.markdown('<div class="section-label">💬 Try asking me...</div>', unsafe_allow_html=True)
 
-    remaining_questions = example_questions[1:]
-    grid_cols = st.columns(2)
-    for i, question in enumerate(remaining_questions):
-        with grid_cols[i % 2]:
-            with st.container(key=f"example_card_{i}", border=False):
-                if st.button(question, use_container_width=True, key=f"example_q_{i}"):
-                    st.session_state.pending_question = question.split(" ", 1)[1]
-                    st.rerun()
+    for question in example_questions[1:]:
+        if st.button(question, use_container_width=True):
+            st.session_state.pending_question = question.split(" ", 1)[1]
+            st.rerun()
 
     st.markdown('<div class="section-label">💡 Not sure what to ask?</div>', unsafe_allow_html=True)
     st.markdown(
@@ -237,7 +417,7 @@ st.session_state.autoplay_last_audio = False
 # -----------------------------
 if "followup_question" in st.session_state and st.session_state.messages:
     followup = st.session_state.followup_question
-    if st.button(f"💬 Ask a follow-up: {followup}", use_container_width=True, key="followup_btn", type="tertiary"):
+    if st.button(f"💬 Ask a follow-up: {followup}", use_container_width=True):
         st.session_state.pending_question = followup.split(" ", 1)[1]
         del st.session_state.followup_question
         st.rerun()
@@ -248,7 +428,7 @@ _last_assistant_msg = next(
     None,
 )
 if _last_assistant_msg:
-    if st.button("📖 Explain that in more detail", use_container_width=True, key="detail_btn", type="tertiary"):
+    if st.button("📖 Explain that in more detail", use_container_width=True):
         st.session_state.pending_detail_question = _last_assistant_msg["question"]
         st.rerun()
 
@@ -424,6 +604,9 @@ if prompt:
     st.rerun()
 
 # -----------------------------
+# Creator credit
+# -----------------------------
+# -----------------------------
 # Conversation export
 # -----------------------------
 if st.session_state.messages:
@@ -436,9 +619,6 @@ if st.session_state.messages:
         st.caption("You can copy the conversation below and save it anywhere you like.")
         st.code(conversation_text, language=None)
 
-# -----------------------------
-# Creator credit
-# -----------------------------
 st.markdown(
     '<div class="creator-credit">'
     '🤖 <strong>Ask Your Microwave</strong> · Powered by your LG microwave manuals<br>'

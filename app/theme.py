@@ -1,5 +1,5 @@
 """
-Design-system CSS for the redesigned UI (streamlit_app_v2.py).
+Design-system CSS for streamlit_app.py.
 
 Streamlit doesn't expose the active light/dark theme as a selectable CSS
 attribute, so the caller resolves it server-side (via st.context.theme.type)
