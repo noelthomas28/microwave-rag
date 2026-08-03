@@ -94,7 +94,7 @@ def inject_theme(is_dark: bool) -> None:
         }}
 
         .main .block-container {{
-            max-width: 1050px;
+            max-width: 1180px;
             padding-top: 2rem;
             padding-bottom: 3rem;
         }}
@@ -123,7 +123,7 @@ def inject_theme(is_dark: bool) -> None:
         .hero {{
             position: relative;
             overflow: hidden;
-            padding: 3.5rem 2.75rem;
+            padding: 3.5rem 2.25rem;
             border-radius: var(--radius-lg);
             background: var(--hero-bg);
             border: 1px solid var(--hero-border);
@@ -170,6 +170,19 @@ def inject_theme(is_dark: bool) -> None:
             animation: fadeSlideIn 0.7s ease-out 0.1s backwards;
         }}
 
+        /* Color emoji glyphs don't participate in the gradient text-clip
+           above the same way normal glyph outlines do — left inside the
+           gradient span, the leading emoji rendered visually clipped on its
+           left edge in testing. Pulling it into its own span restores its
+           normal (non-masked) rendering and gives it a little breathing
+           room from the hero's edge. */
+        .hero h1 .hero-emoji {{
+            -webkit-text-fill-color: initial;
+            display: inline-block;
+            margin-left: 0.05em;
+            margin-right: 0.15em;
+        }}
+
         .hero p.hero-subtitle {{
             margin: 0 0 0.4rem 0;
             font-size: 1.25rem;
@@ -182,19 +195,19 @@ def inject_theme(is_dark: bool) -> None:
         .feature-row {{
             display: flex;
             flex-wrap: wrap;
-            gap: 0.6rem;
+            gap: 0.45rem;
             margin-top: 1.5rem;
         }}
 
         .feature-pill {{
-            padding: 0.5rem 1.1rem;
+            padding: 0.4rem 0.85rem;
             border-radius: var(--radius-pill);
             background: var(--surface-1);
             backdrop-filter: blur(16px) saturate(160%);
             -webkit-backdrop-filter: blur(16px) saturate(160%);
             border: 1px solid var(--surface-1-border);
             color: var(--text-primary);
-            font-size: 0.92rem;
+            font-size: 0.85rem;
             font-weight: 500;
             white-space: nowrap;
             transition: transform 0.2s ease, background 0.2s ease;

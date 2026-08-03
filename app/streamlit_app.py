@@ -150,7 +150,7 @@ if "messages" not in st.session_state:
 st.markdown(
     """
     <div class="hero">
-        <h1>🤖 Ask Your Microwave</h1>
+        <h1><span class="hero-emoji">🤖</span> Ask Your Microwave</h1>
         <p class="hero-subtitle"><strong>Your friendly guide to your LG microwave.</strong></p>
         <p class="hero-subtitle">Ask questions in plain English about cooking functions, settings, accessories, cleaning, and safety.</p>
         <div class="feature-row">
