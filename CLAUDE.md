@@ -44,12 +44,16 @@ Requires `OPENAI_API_KEY` in a `.env` file at the repo root (see `get_secret()` 
   current and archived alike.
 - **`app/streamlit_app.py`** — the deployment entry point. Streamlit Community Cloud and
   `.devcontainer/devcontainer.json` both hardcode this literal filename, so it always has to
-  exist at this path — its only job is `import streamlit_app_v3`, which runs that module's
-  top-level code exactly as if Streamlit had executed it directly. No UI code lives in this file;
-  don't add any here. Promoting a new version to production is a one-line change to which module
-  it imports (plus the file moves described in "UI versions").
+  exist at this path — its only job is `runpy.run_path("streamlit_app_v3.py")`, which re-executes
+  that file's top-level code fresh on every rerun. **Must be `runpy.run_path`, not a plain
+  `import streamlit_app_v3`**: Streamlit reruns this file on every interaction within the same
+  long-lived process, but a plain `import` only executes a module's top-level code the first
+  time — every later rerun would hit Python's `sys.modules` cache and silently render nothing (a
+  blank page after the first click; this shipped as a real bug once, see git history). No UI code
+  lives in this file; don't add any here. Promoting a new version to production is a one-line
+  change to which file it runs (plus the file moves described in "UI versions").
 - **`app/streamlit_app_v3.py`** / **`app/theme_v3.py`** / **`app/effects_v3.py`** — the current
-  UI's actual code (imported by the shim above). See "UI versions" below.
+  UI's actual code (run fresh each time by the shim above). See "UI versions" below.
 - **`app/archived/`** — previous UI versions, kept for reference/rollback, no longer imported by
   anything live. See "UI versions" below.
 
@@ -114,7 +118,7 @@ Reciprocal Rank Fusion (`RRF_K = 60`). Tune candidate/result sizes via `CANDIDAT
 Every UI version shares the same backend (`rag_engine.py`) and the same on-disk index cache, so
 they all behave identically functionally — only presentation differs. Versions are numbered
 (`v1`, `v2`, `v3`, ...) in the order they were built; whichever one is current lives directly
-under `app/` and is what `app/streamlit_app.py` (the deployment shim, see "Architecture") imports.
+under `app/` and is what `app/streamlit_app.py` (the deployment shim, see "Architecture") runs.
 Superseded versions move into `app/archived/` and are no longer imported by anything live —
 they're kept only for reference/rollback, and are still directly runnable
 (`streamlit run app/archived/streamlit_app_vN.py`) since each carries a small `sys.path` bootstrap
@@ -151,7 +155,8 @@ restyles every version (native widget colors/font/radius only) regardless of whi
 outgoing current version's files into `app/archived/` under their `vN` names, fix their imports/
 `sys.path` bootstrap the same way `v1`/`v2` were handled, move the new version's files from their
 build names into `app/` under the next `vN` name, and update `app/streamlit_app.py`'s single
-import line to point at the new version's module. Update this section of CLAUDE.md to match.
+`runpy.run_path()` line to point at the new version's filename. Update this section of
+CLAUDE.md to match.
 
 ## Deployment
 
@@ -159,7 +164,7 @@ Configured for both GitHub Codespaces (`.devcontainer/devcontainer.json`, runs
 `streamlit run app/streamlit_app.py`) and Streamlit Community Cloud (secrets via `st.secrets`
 instead of `.env`). Both point at the literal filename `app/streamlit_app.py`, which is a thin
 shim that never changes — promoting a UI version to production only ever means editing that one
-import line (see "UI versions"), never touching deployment config.
+`runpy.run_path()` line (see "UI versions"), never touching deployment config.
 
 ## Data
 
