@@ -17,11 +17,16 @@ capabilities the appliance doesn't have.
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# Run the app locally (redesigned UI, currently deployed)
+# Run the app locally (currently deployed UI, via the app/streamlit_app.py shim)
 streamlit run app/streamlit_app.py
 
-# Run the previous UI (kept for reference/rollback — see UI versions below)
-streamlit run app/streamlit_app_old.py
+# Run a specific version directly (bypasses the shim; useful while iterating
+# on a not-yet-promoted version) — see "UI versions" below
+streamlit run app/streamlit_app_v3.py
+
+# Run an archived (previous) UI, kept for reference/rollback
+streamlit run app/archived/streamlit_app_v2.py
+streamlit run app/archived/streamlit_app_v1.py
 
 # Run the RAG engine standalone (CLI Q&A loop, no Streamlit)
 python app/rag_engine.py
@@ -35,12 +40,18 @@ Requires `OPENAI_API_KEY` in a `.env` file at the repo root (see `get_secret()` 
 
 ## Architecture
 
-- **`app/rag_engine.py`** — the RAG pipeline, usable standalone or imported by either UI.
-- **`app/streamlit_app.py`** / **`app/theme.py`** — the current, deployed Streamlit UI (an
-  Apple-inspired redesign), imports functions from `rag_engine.py`. Styling lives in `theme.py`
-  plus `.streamlit/config.toml`, not inline in this file.
-- **`app/streamlit_app_old.py`** — the previous UI, kept for reference/rollback. Has its own
-  inline CSS (does not use `theme.py`). See "UI versions" below.
+- **`app/rag_engine.py`** — the RAG pipeline, usable standalone or imported by every UI version,
+  current and archived alike.
+- **`app/streamlit_app.py`** — the deployment entry point. Streamlit Community Cloud and
+  `.devcontainer/devcontainer.json` both hardcode this literal filename, so it always has to
+  exist at this path — its only job is `import streamlit_app_v3`, which runs that module's
+  top-level code exactly as if Streamlit had executed it directly. No UI code lives in this file;
+  don't add any here. Promoting a new version to production is a one-line change to which module
+  it imports (plus the file moves described in "UI versions").
+- **`app/streamlit_app_v3.py`** / **`app/theme_v3.py`** / **`app/effects_v3.py`** — the current
+  UI's actual code (imported by the shim above). See "UI versions" below.
+- **`app/archived/`** — previous UI versions, kept for reference/rollback, no longer imported by
+  anything live. See "UI versions" below.
 
 ### Indexing (`load_or_build_index`)
 
@@ -89,10 +100,10 @@ Reciprocal Rank Fusion (`RRF_K = 60`). Tune candidate/result sizes via `CANDIDAT
   audio for answers, autoplayed once via a `components.html` script injection (Streamlit has no
   native post-rerun autoplay hook).
 - Because Streamlit's built-in auto-scroll only fires for direct `st.chat_input` submissions, the
-  app injects its own scroll-correction JS for button/voice-triggered questions (see the bottom
-  of `streamlit_app.py`/`streamlit_app_old.py`) — scroll-to-top on a fresh session,
-  scroll-to-just-above-the-answer after a question is answered, canceling itself if the user
-  manually scrolls.
+  app injects its own scroll-correction JS for button/voice-triggered questions (see the bottom of
+  `streamlit_app_v3.py`, and the equivalent block in each archived version) — scroll-to-top on a
+  fresh session, scroll-to-just-above-the-answer after a question is answered, canceling itself if
+  the user manually scrolls.
 - OpenAI error handling is deliberately mapped to plain-language messages
   (`AuthenticationError`, `RateLimitError` w/ quota vs. rate-limit distinction,
   `APIConnectionError`) since the intended audience is non-technical family members, not
@@ -100,37 +111,55 @@ Reciprocal Rank Fusion (`RRF_K = 60`). Tune candidate/result sizes via `CANDIDAT
 
 ## UI versions
 
-There are two Streamlit UIs sharing the same backend (`rag_engine.py`) and the same on-disk index
-cache, so both behave identically functionally — only presentation differs:
+Every UI version shares the same backend (`rag_engine.py`) and the same on-disk index cache, so
+they all behave identically functionally — only presentation differs. Versions are numbered
+(`v1`, `v2`, `v3`, ...) in the order they were built; whichever one is current lives directly
+under `app/` and is what `app/streamlit_app.py` (the deployment shim, see "Architecture") imports.
+Superseded versions move into `app/archived/` and are no longer imported by anything live —
+they're kept only for reference/rollback, and are still directly runnable
+(`streamlit run app/archived/streamlit_app_vN.py`) since each carries a small `sys.path` bootstrap
+so it can still find `rag_engine.py` up in `app/`.
 
-- **`app/streamlit_app.py`** — the current, deployed UI: an Apple-inspired redesign (bigger
-  typography, glass-card surfaces, staggered fade-in animations, a two-column example-question
-  grid). Preserves every feature of the previous UI (PIN gate, sidebar tips/toggles, cooking-mode
+- **`app/streamlit_app_v3.py`** (current) / **`app/theme_v3.py`** / **`app/effects_v3.py`** — a
+  fuller Apple/Google-Antigravity-inspired redesign: a full-bleed hero landing moment, a
+  scroll-revealed "capabilities showcase" card grid, an editorial type scale, and a cursor-glow
+  (desktop) / tap-ripple + scroll-driven ambient drift (touch) effect scoped to the hero, plus the
+  same spotlight effect on the capability cards, cooking-mode card, example-question tiles, and
+  feature pills. Preserves every feature of `v2` (PIN gate, sidebar tips/toggles, cooking-mode
   search, voice input, source excerpts, follow-up/detail buttons, scroll-management JS,
-  conversation export). Its styling comes from two places: `.streamlit/config.toml` (native
-  widget colors, the Inter font, button/corner radii — via `[theme.light]`/`[theme.dark]` blocks)
-  and `app/theme.py`'s `inject_theme(is_dark)` (everything `config.toml` can't reach: the hero,
-  glass cards, pills, chat bubbles, animations), called once near the top of the file.
-  **Note:** `.streamlit/config.toml` applies to any Streamlit app run from this repo, so it will
-  also subtly restyle `streamlit_app_old.py` (native widget colors/font/radius only — none of
-  `theme.py`'s custom CSS, since that's only invoked from `streamlit_app.py`).
-- **`app/streamlit_app_old.py`** — the previous UI, kept around for reference/rollback. Styles
-  itself with an inline `st.markdown(f"""<style>...""")` block computed from `_is_dark`-branched
-  Python variables; does not import `theme.py`.
+  conversation export). Styling comes from three places: `.streamlit/config.toml` (native widget
+  colors, the Inter font, button/corner radii), `theme_v3.py`'s `inject_theme_v2(is_dark)`
+  (everything `config.toml` can't reach — hero, cards, pills, animations, the glow/reveal CSS;
+  function name kept as `inject_theme_v2` from before this renaming pass, harmless), and
+  `effects_v3.py`'s `inject_cursor_effects()` / `inject_scroll_reveal()` (the cursor-glow/ripple
+  and `IntersectionObserver` scroll-reveal JS, injected via `components.html`). `theme_v3.py`
+  intentionally inlines its base color/radius/spacing tokens rather than importing them from
+  `app/archived/theme_v2.py` — archived files are frozen snapshots, not a live dependency.
+- **`app/archived/streamlit_app_v2.py`** / **`app/archived/theme_v2.py`** — the previous live UI:
+  an Apple-inspired redesign (bigger typography, glass-card surfaces, staggered fade-in
+  animations, a two-column example-question grid). Styled via `theme_v2.py`'s
+  `inject_theme(is_dark)`.
+- **`app/archived/streamlit_app_v1.py`** — the original UI, before any redesign. Styles itself
+  with an inline `st.markdown(f"""<style>...""")` block computed from `_is_dark`-branched Python
+  variables; no separate theme file.
 
-This UI was originally built as `app/streamlit_app_v2.py` alongside the (then-current)
-`app/streamlit_app.py`, reviewed, and then promoted by renaming: the old file became
-`streamlit_app_old.py` and the new one took over the `streamlit_app.py` name. This was done
-specifically so that `.devcontainer/devcontainer.json` and the Streamlit Community Cloud
-deployment (both of which reference the literal filename `app/streamlit_app.py`) would pick up
-the new UI without needing their own config changed.
+**Note:** `.streamlit/config.toml` applies to any Streamlit app run from this repo, so it subtly
+restyles every version (native widget colors/font/radius only) regardless of which one is current.
+
+**Promoting a new version** (e.g. building a `v4`): build it alongside the current version under
+`app/` (don't touch the current version's files while iterating), review it, then: move the
+outgoing current version's files into `app/archived/` under their `vN` names, fix their imports/
+`sys.path` bootstrap the same way `v1`/`v2` were handled, move the new version's files from their
+build names into `app/` under the next `vN` name, and update `app/streamlit_app.py`'s single
+import line to point at the new version's module. Update this section of CLAUDE.md to match.
 
 ## Deployment
 
 Configured for both GitHub Codespaces (`.devcontainer/devcontainer.json`, runs
 `streamlit run app/streamlit_app.py`) and Streamlit Community Cloud (secrets via `st.secrets`
-instead of `.env`). Both point at the literal filename `app/streamlit_app.py`, so which UI is
-"deployed" is determined entirely by which file currently has that name (see "UI versions").
+instead of `.env`). Both point at the literal filename `app/streamlit_app.py`, which is a thin
+shim that never changes — promoting a UI version to production only ever means editing that one
+import line (see "UI versions"), never touching deployment config.
 
 ## Data
 
